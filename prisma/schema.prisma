@@ -1,0 +1,1107 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["multiSchema", "driverAdapters"]
+  binaryTargets   = ["native", "linux-musl", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["invoice", "audit_log", "payment", "user", "notification", "metric", "public"]
+}
+
+model Organization {
+  id               String             @id
+  name             String             @unique
+  domain           String?            @unique
+  settings         Json?
+  email            String?            @unique
+  emailPassword    String?
+  accessToken      Json?
+  createdAt        DateTime           @default(now())
+  isActive         Boolean
+  enableMasking    Boolean            @default(true)
+  updatedAt     DateTime       @default(now())
+  invoiceRetentionPeriod Int?  @default(90) // in days
+  BusinessRule     BusinessRule[]
+  invoices         Invoice[]
+  Workflow         Workflow[]
+  Client           Client[]
+  branches         Branch[]
+  users            User[]
+  Department       Department[]       @relation("DepartmentToOrganization")
+  Supplier         Supplier[]
+  invoiceTemplate  invoiceTemplate[]
+  extractionConfig extractionConfig[]
+  @@map("organization")
+  @@schema("user")
+}
+
+model Branch {
+  id                String              @id
+  name              String
+  code              String              @unique
+  organizationId    String
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @default(now())
+  address           String
+  phoneNumber       String?
+  email             String?
+  emailPassword     String?
+  accessToken       Json?
+  city              String?
+  postalCode        String?
+  countryId         String //mandatory field list according to id
+  isActive          Boolean
+  BranchBankDetails BranchBankDetails[]
+  ClientInvoice     ClientInvoice[]
+  invoices          Invoice[]
+  country           Country             @relation(fields: [countryId], references: [id])
+  organization      Organization        @relation(fields: [organizationId], references: [id])
+  departments       Department[]
+  Workflow          Workflow[]          @relation("BranchToWorkflow")
+
+  // Many-to-Many relationship
+  users BranchOnUser[]
+
+  @@map("branch")
+  @@schema("user")
+}
+
+model User {
+  id                        String                      @id
+  email                     String                      @unique
+  password                  String
+  firstName                 String
+  lastName                  String
+  status                    UserStatus
+  organizationId            String
+  updatedAt                 DateTime                    @default(now())
+  createdAt                 DateTime                    @default(now())
+  roleId                    String
+  forcePasswordReset        Boolean                     @default(false)
+  languageId                String?
+  lastLoggedIn              DateTime?
+  InvoiceDepartmentApproval InvoiceDepartmentApproval[]
+  Workflow                  Workflow[]
+  UserDepartment            UserDepartment[]
+  UserToken                 UserToken[]
+  organization              Organization                @relation(fields: [organizationId], references: [id])
+  role                      Role                        @relation(fields: [roleId], references: [id])
+  Invoice                   Invoice[]
+  Department                Department[]                @relation("DepartmentToUser")
+  Language                  Language?                   @relation(fields: [languageId], references: [id])
+  // Many-to-Many relationship
+  branches                  BranchOnUser[]
+
+  // Relation to password history
+  passwordHistory PasswordHistory[]
+  Notification    Notification[]
+  FieldCorrection FieldCorrection[]
+
+  @@map("users")
+  @@schema("user")
+}
+
+model PasswordHistory {
+  userId    String
+  password  String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, createdAt])
+  @@map("password_history")
+  @@schema("user")
+}
+
+// Junction table for Many-to-Many relation
+model BranchOnUser {
+  userId   String
+  branchId String
+
+  user   User   @relation(fields: [userId], references: [id])
+  branch Branch @relation(fields: [branchId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@id([userId, branchId]) // Composite Primary Key
+  @@map("branch_on_user")
+  @@schema("user")
+}
+
+model UserToken {
+  id         String        @id
+  userId     String
+  token      String        @unique
+  expiresAt  DateTime
+  type       UserTokenType
+  createdAt  DateTime      @default(now())
+  sessionId  String?
+  deviceInfo String?
+  updatedAt  DateTime      @default(now())
+  user       User          @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("user_tokens")
+  @@schema("user")
+}
+
+model Department {
+  id                        String                      @id
+  name                      String
+  branchId                  String
+  approvalLevel             Int                         @default(1)
+  createdAt                 DateTime                    @default(now())
+  updatedAt                 DateTime                    @default(now())
+  InvoiceDepartmentApproval InvoiceDepartmentApproval[]
+  Invoice                   Invoice[]
+  WorkflowStep              WorkflowStep[]
+  branch                    Branch                      @relation(fields: [branchId], references: [id])
+  UserDepartment            UserDepartment[]
+  Organization              Organization[]              @relation("DepartmentToOrganization")
+  User                      User[]                      @relation("DepartmentToUser")
+
+  @@map("departments")
+  @@schema("user")
+}
+
+model UserDepartment {
+  userId       String
+  departmentId String
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @default(now())
+  department   Department @relation(fields: [departmentId], references: [id])
+  user         User       @relation(fields: [userId], references: [id])
+
+  @@id([userId, departmentId])
+  @@map("user_department")
+  @@schema("user")
+}
+
+model Client {
+  id             String          @id
+  name           String
+  phoneNumber    String?
+  email          String?        
+  address        String
+  countryId      String
+  organizationId String
+  ClientInvoice  ClientInvoice[]
+  country        Country         @relation(fields: [countryId], references: [id])
+  organization   Organization    @relation(fields: [organizationId], references: [id])
+
+  @@schema("user")
+}
+
+model Role {
+  id        String   @id
+  name      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now())
+
+  WorkflowStep WorkflowStep[]
+
+  User User[]
+
+  @@map("role")
+  @@schema("user")
+}
+
+model Screens {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  code      String   @unique
+  createdAt DateTime @default(now())
+
+  @@map("screens")
+  @@schema("user")
+}
+
+model ScreenPermissions {
+  id             Int      @id @default(autoincrement())
+  screenCode     String
+  permission     String[]
+  roleId         String
+  organizationId String
+
+  @@unique([screenCode, roleId, organizationId])
+  @@schema("user")
+}
+
+model RoutePermission {
+  id             Int      @id @default(autoincrement())
+  endpoint       String
+  permission     String[]
+  roleId         String
+  organizationId String
+
+  @@unique([endpoint, roleId, organizationId])
+  @@schema("user")
+}
+
+model Language {
+  id        String   @id
+  code      String   @unique
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now())
+  user      User[]
+
+  @@map("language")
+  @@schema("user")
+}
+
+model Invoice {
+  id                String        @id
+  invoiceNumber     String?
+  supplierId        String?
+  status            InvoiceStatus
+  totalAmount       Decimal?
+  taxPercentage     Decimal?
+  taxAmount         Decimal?
+  discountAmount    Decimal?
+  finalAmount       Decimal?
+  dueDate           String?
+  invoiceDate       String?
+  currencyId        String?
+  source            InvoiceSource
+  uploadedBy        String?
+  assignedUserId    String?
+  workflowStep      Int           @default(1)
+  departmentId      String?
+  isUrgent          Boolean       @default(false)
+  isRecurring       Boolean       @default(false)
+  isPrepaid         Boolean       @default(false)
+  isIntraCommunity  Boolean       @default(false)
+  validatorComments String?
+  approverComments  String?
+  organizationId    String
+  branchId          String?
+  fileName          String?
+  filePath          String?
+  sourceEmail       String?
+  bankDetailId      String?
+  flexiFields       Json?
+  mergedData        Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  InvoiceDepartmentApproval InvoiceDepartmentApproval[]
+  user                      User?                       @relation(fields: [assignedUserId], references: [id])
+  InvoiceItem               InvoiceItem[]
+  branch                    Branch?                     @relation(fields: [branchId], references: [id])
+  currency                  Currency?                   @relation(fields: [currencyId], references: [id])
+  department                Department?                 @relation(fields: [departmentId], references: [id])
+  organization              Organization                @relation(fields: [organizationId], references: [id])
+  supplier                  Supplier?                   @relation(fields: [supplierId], references: [id])
+  InvoicePaymentBatch       InvoicePaymentBatch[]
+  Transaction               Transaction[]
+  PaymentBatch              PaymentBatch[]              @relation("InvoiceToPaymentBatch")
+  InvoiceStatusHistory      InvoiceStatusHistory[]
+  BankDetail                BankDetails?                @relation(fields: [bankDetailId], references: [id])
+
+  processingQueue           InvoiceProcessingQueue[]
+  metadata                  InvoiceMetadata[]
+  keywords                  InvoiceKeywords[]
+  extraction_history        ExtractionHistory[]
+  field_result              FieldResult[]
+  field_escalation          FieldEscalation[]
+  invoice_extraction_result invoiceExtractionResult[]
+  FieldCorrection           FieldCorrection[]
+
+  @@index([supplierId])
+  @@index([finalAmount])
+  @@index([invoiceDate])
+  @@map("invoices")
+  @@schema("invoice")
+}
+
+model InvoiceItem {
+  id        String   @id
+  lineItems Json?
+  invoiceId String
+  createdAt DateTime @default(now())
+  invoice   Invoice  @relation(fields: [invoiceId], references: [id])
+
+  @@map("invoice_item")
+  @@schema("invoice")
+}
+
+model invoiceTemplate {
+  id                    String       @id
+  templateName          String
+  keywords              String[]
+  fingerprint           Json
+  templateType          TemplateType
+  imagePath             String
+  drawnCoordinates      Json // stores user-annotated bounding boxes etc.
+  extractionCoordinates Json // stores final coordinates used for field extraction
+  organizationId        String
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+
+  organization            Organization              @relation(fields: [organizationId], references: [id])
+  invoiceExtractionResult invoiceExtractionResult[]
+  extractionConfig        extractionConfig[]
+  FieldMetric             FieldMetric[]
+
+  @@map("invoice_template")
+  @@schema("invoice")
+}
+
+model invoiceExtractionResult {
+  id               String           @id
+  invoiceId        String
+  templateId       String?
+  modelId          String? // e.g., model version or ID used for extraction
+  rawOutput        Json? // raw output from the extraction model
+  parsedOutput     Json?
+  confidenceScore  Float?
+  isSuccessful     Boolean          @default(false)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  extractionMethod ExtractionMethod
+
+  invoice  Invoice?         @relation(fields: [invoiceId], references: [id])
+  template invoiceTemplate? @relation(fields: [templateId], references: [id])
+
+  @@unique([invoiceId, extractionMethod])
+  @@map("invoice_extraction_result")
+  @@schema("invoice")
+}
+
+model fieldDefinition {
+  id               String             @id
+  fieldName        String
+  dataType         String // e.g., "text", "number", "date"
+  description      String
+  isEnabled        Boolean            @default(true)
+  isRequired       Boolean            @default(false)
+  importanceScore  Float              @default(1.0)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  extractionConfig extractionConfig[]
+  FieldResult      FieldResult[]
+  FieldCorrection  FieldCorrection[]
+  field_escalation FieldEscalation[]
+  FieldMetric      FieldMetric[]
+
+  @@map("field_definition")
+  @@schema("invoice")
+}
+
+model extractionConfig {
+  id                  String           @id
+  fieldId             String
+  templateId          String
+  extractionMethod    ExtractionMethod
+  confidenceThreshold String? // e.g., "0.8" for 80% confidence
+  organisationId      String
+  autoSwitch          Boolean          @default(false) // whether to auto-switch to LLM if template extraction fails
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  fieldDefinition fieldDefinition @relation(fields: [fieldId], references: [id])
+  invoiceTemplate invoiceTemplate @relation(fields: [templateId], references: [id])
+  organization    Organization    @relation(fields: [organisationId], references: [id])
+
+  methodSwitchLog methodSwitchLog[]
+
+  @@map("extraction_config")
+  @@schema("invoice")
+}
+
+model methodSwitchLog {
+  id           Int              @id @default(autoincrement())
+  configId     String
+  fromMethod   ExtractionMethod
+  toMethod     ExtractionMethod
+  switchReason String? // e.g., "template failed", "LLM fallback"
+  switchedAt   DateTime         @default(now())
+
+  extractionConfig extractionConfig @relation(fields: [configId], references: [id])
+
+  @@map("method_switch_log")
+  @@schema("invoice")
+}
+
+model FieldResult {
+  id               String           @id
+  invoiceId        String
+  fieldId          String
+  extractedValue   String?
+  extractionMethod ExtractionMethod
+  confidenceScore  Float? // e.g., 0.85 for 85% confidence
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  invoice         Invoice         @relation(fields: [invoiceId], references: [id])
+  fieldDefinition fieldDefinition @relation(fields: [fieldId], references: [id])
+
+  @@map("field_result")
+  @@schema("invoice")
+}
+
+model FieldCorrection {
+  id             Int      @id @default(autoincrement())
+  invoiceId      String
+  historyId      String?
+  fieldId        String
+  userId         String
+  originalValue  String
+  correctedValue String
+  reason         String? // e.g., "manual correction", "template mismatch"
+  createdAt      DateTime @default(now())
+
+  fieldDefinition fieldDefinition    @relation(fields: [fieldId], references: [id])
+  user            User               @relation(fields: [userId], references: [id])
+  history         ExtractionHistory? @relation(fields: [historyId], references: [id])
+  invoice         Invoice            @relation(fields: [invoiceId], references: [id])
+
+  @@map("field_correction")
+  @@schema("invoice")
+}
+
+model ExtractionHistory {
+  id              String            @id
+  invoiceId       String
+  fieldId         String
+  method          ExtractionMethod
+  extractedValue  String?
+  isSuccessful    Boolean           @default(false)
+  createdAt       DateTime          @default(now())
+  Invoice         Invoice           @relation(fields: [invoiceId], references: [id])
+  FieldCorrection FieldCorrection[]
+
+  @@map("extraction_history")
+  @@schema("invoice")
+}
+
+model FieldEscalation {
+  id               String   @id
+  invoiceId        String
+  fieldId          String
+  escalationReason String? // e.g., "manual review needed", "template mismatch"
+  ticketId         String?
+  createdAt        DateTime @default(now())
+
+  invoice         Invoice         @relation(fields: [invoiceId], references: [id])
+  fieldDefinition fieldDefinition @relation(fields: [fieldId], references: [id])
+
+  @@map("field_escalation")
+  @@schema("invoice")
+}
+
+model LLMModelMetadata {
+  id            String   @id
+  modelName     String
+  version       String?
+  provider      String
+  configDetails Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("llm_model_metadata")
+  @@schema("invoice")
+}
+
+model FieldMetric {
+  id                  Int       @id @default(autoincrement())
+  fieldId             String
+  periodStart         DateTime
+  periodEnd           DateTime
+  templateFailures    Int       @default(0) // number of times template extraction failed
+  aiFailures          Int       @default(0) // number of failed AI extractions
+  userCorrections     Int       @default(0) // number of user corrections made
+  consecutiveFailures Int       @default(0) // number of consecutive failures
+  lastFailureAt       DateTime?
+  createdAt           DateTime  @default(now())
+  templateId          String
+
+  invoiceTemplate invoiceTemplate @relation(fields: [templateId], references: [id])
+  fieldDefinition fieldDefinition @relation(fields: [fieldId], references: [id])
+
+  @@unique([fieldId, templateId])
+  @@map("field_metric")
+  @@schema("metric")
+}
+
+model InvoiceKeywords {
+  id        Int                @id @default(autoincrement())
+  type      InvoiceKeywordType
+  keyword   String
+  language  String
+  frequency String? // optional: 'monthly', 'weekly', etc.
+  createdAt DateTime           @default(now())
+  Invoice   Invoice?           @relation(fields: [invoiceId], references: [id])
+  invoiceId String?
+
+  @@unique([keyword, language])
+  @@schema("invoice")
+}
+
+model InvoiceMetadata {
+  id                 String                  @id
+  queueId            String?
+  queue              InvoiceProcessingQueue? @relation(fields: [queueId], references: [id])
+  fileUrl            String
+  rawData            String?
+  finalExtractedData Json?
+  fileType           FileTypes
+  errorMessage       String?
+  retryCount         Int                     @default(0)
+  lastAttemptAt      DateTime?
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+  Invoice            Invoice?                @relation(fields: [invoiceId], references: [id])
+  invoiceId          String?
+
+  isTrained     Boolean @default(false)
+  isProcessed   Boolean @default(false)
+  isUnprocessed Boolean @default(true)
+
+  @@map("invoice_metadata")
+  @@schema("invoice")
+}
+
+model InvoiceProcessingQueue {
+  id              String            @id
+  invoiceId       String?           @unique
+  Invoice         Invoice?          @relation(fields: [invoiceId], references: [id])
+  processType     ProcessType
+  status          ProcessStatus
+  retryCount      Int               @default(0)
+  errorMessage    String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  InvoiceMetadata InvoiceMetadata[]
+
+  @@map("invoice_queue")
+  @@schema("invoice")
+}
+
+model InvoiceDepartmentApproval {
+  id             String                @id
+  invoiceId      String
+  departmentId   String
+  approvalStatus InvoiceApprovalStatus
+  approvedById   String
+  approvedAt     DateTime?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @default(now())
+  approvedBy     User                  @relation(fields: [approvedById], references: [id])
+  department     Department            @relation(fields: [departmentId], references: [id])
+  invoice        Invoice               @relation(fields: [invoiceId], references: [id])
+
+  @@unique([invoiceId, departmentId])
+  @@map("invoice_dept_approval")
+  @@schema("invoice")
+}
+
+model Supplier {
+  id                    String                  @id
+  name                  String
+  contactEmail          String?
+  phoneNumber           String?
+  address               String?
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @default(now())
+  organizationId        String
+  Organization          Organization            @relation(fields: [organizationId], references: [id])
+  Invoice               Invoice[]
+  SupplierBankDetails   SupplierBankDetails[]
+  SupplierCountry       SupplierCountry[]
+  SupplierPaymentMethod SupplierPaymentMethod[]
+  BankDetails           BankDetails[]           @relation("BankDetailsToSupplier")
+  Transaction           Transaction[]
+
+  @@map("suppliers")
+  @@schema("invoice")
+}
+
+model BankDetails {
+  id                  String                @id @unique
+  accountNumber       String?
+  IFSCCode            String?
+  swiftCode           String?
+  currencyCode        String
+  IBANNumber          String? //unique constraint removed for uploadinvoice
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @default(now())
+  currency            Currency              @relation(fields: [currencyCode], references: [code])
+  BranchBankDetails   BranchBankDetails[]
+  SupplierBankDetails SupplierBankDetails[]
+  Supplier            Supplier[]            @relation("BankDetailsToSupplier")
+  invoices            Invoice[]
+
+  @@map("bank_details")
+  @@schema("invoice")
+}
+
+model Country {
+  id              String            @id
+  code            String            @unique
+  name            String
+  currencyCode    String
+  countryCode     String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @default(now())
+  currency        Currency          @relation(fields: [currencyCode], references: [code])
+  SupplierCountry SupplierCountry[]
+  Tax             Tax[]
+  Client          Client[]
+  branch          Branch[]
+
+  @@map("country")
+  @@schema("invoice")
+}
+
+model SupplierCountry {
+  supplierId String
+  countryId  String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @default(now())
+  country    Country  @relation(fields: [countryId], references: [id])
+  supplier   Supplier @relation(fields: [supplierId], references: [id])
+
+  @@id([supplierId, countryId])
+  @@map("supplier_country")
+  @@schema("invoice")
+}
+
+model SupplierBankDetails {
+  supplierId    String
+  bankDetailsId String
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @default(now())
+  bankDetails   BankDetails @relation(fields: [bankDetailsId], references: [id])
+  supplier      Supplier    @relation(fields: [supplierId], references: [id])
+
+  @@id([supplierId, bankDetailsId])
+  @@map("supplier_bankdetails")
+  @@schema("invoice")
+}
+
+model Currency {
+  id           String         @id
+  code         String         @unique
+  name         String
+  symbol       String
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @default(now())
+  locale       String?
+  BankDetails  BankDetails[]
+  Country      Country[]
+  Invoice      Invoice[]
+  PaymentBatch PaymentBatch[]
+  Transaction  Transaction[]
+
+  @@map("currency")
+  @@schema("invoice")
+}
+
+model BranchBankDetails {
+  id            String          @id
+  branchId      String
+  bankDetailsId String
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @default(now())
+  bankDetails   BankDetails     @relation(fields: [bankDetailsId], references: [id])
+  branch        Branch          @relation(fields: [branchId], references: [id])
+  ClientInvoice ClientInvoice[]
+
+  @@unique([branchId, bankDetailsId])
+  @@map("branch_bank_details")
+  @@schema("invoice")
+}
+
+model Tax {
+  id            String          @id
+  name          String
+  rate          Decimal
+  description   String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @default(now())
+  countryId     String
+  ClientInvoice ClientInvoice[]
+  country       Country         @relation(fields: [countryId], references: [id])
+
+  @@map("tax")
+  @@schema("invoice")
+}
+
+model ClientInvoice {
+  id                String                  @id
+  invoiceNumber     String                  @unique
+  clientId          String
+  paymentMethodId   String
+  billingAddressId  String
+  InvoiceDate       DateTime
+  dueDate           DateTime
+  projectName       String?
+  totalAmount       Decimal
+  taxAmount         Decimal?
+  taxPercentage     Decimal?
+  finalAmount       Decimal
+  taxId             String?
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @default(now())
+  branch            Branch                  @relation(fields: [billingAddressId], references: [id])
+  client            Client                  @relation(fields: [clientId], references: [id])
+  branchBankDetails BranchBankDetails       @relation(fields: [paymentMethodId], references: [id])
+  lineItems         ClientInvoiceLineItem[]
+  Tax               Tax?                    @relation(fields: [taxId], references: [id])
+
+  @@map("client_invoice")
+  @@schema("invoice")
+}
+
+model ClientInvoiceLineItem {
+  id              String   @id
+  clientInvoiceId String
+  description     String?
+  quantity        Float?
+  unitPrice       Decimal?
+  totalPrice      Decimal
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @default(now())
+
+  clientInvoice ClientInvoice @relation(fields: [clientInvoiceId], references: [id])
+
+  @@map("client_invoice_line_item")
+  @@schema("invoice")
+}
+
+model Workflow {
+  id             String         @id
+  organizationId String
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @default(now())
+  createdBy      String
+  updatedBy      String
+  organization   Organization   @relation(fields: [organizationId], references: [id])
+  user           User           @relation(fields: [updatedBy], references: [id])
+  steps          WorkflowStep[]
+  Branch         Branch[]       @relation("BranchToWorkflow")
+
+  @@map("workflow")
+  @@schema("invoice")
+}
+
+model WorkflowStep {
+  id              String       @id
+  workflowId      String
+  numValidators   Int          @default(1)
+  autoAssign      Boolean      @default(false)
+  approvalLevels  Int          @default(1)
+  urgentThreshold Int          @default(7)
+  departmentId    String
+  businessRuleId  String
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @default(now())
+  roleRequired    String
+  businessRule    BusinessRule @relation(fields: [businessRuleId], references: [id])
+  department      Department   @relation(fields: [departmentId], references: [id])
+  role            Role         @relation(fields: [roleRequired], references: [id])
+  workflow        Workflow     @relation(fields: [workflowId], references: [id])
+
+  @@map("workflowstep")
+  @@schema("invoice")
+}
+
+model BusinessRule {
+  id             String @id
+  organizationId String
+  ruleName       String
+
+  field        String?
+  condition    Json
+  value        String?
+  action       String?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @default(now())
+  organization Organization   @relation(fields: [organizationId], references: [id])
+  WorkflowStep WorkflowStep[]
+
+  @@map("business_rule")
+  @@schema("invoice")
+}
+
+model PaymentMethod {
+  id                    String                  @id
+  name                  String
+  description           String?
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @default(now())
+  SupplierPaymentMethod SupplierPaymentMethod[]
+  Transaction           Transaction[]
+
+  @@map("payment_method")
+  @@schema("invoice")
+}
+
+model SupplierPaymentMethod {
+  supplierId      String
+  paymentMethodId String
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @default(now())
+  paymentMethod   PaymentMethod @relation(fields: [paymentMethodId], references: [id])
+  supplier        Supplier      @relation(fields: [supplierId], references: [id])
+
+  @@id([supplierId, paymentMethodId])
+  @@map("supplier_payment_method")
+  @@schema("invoice")
+}
+
+model PaymentBatch {
+  id                  String                @id
+  totalAmount         Float
+  currencyCode        String
+  status              PaymentStatus
+  scheduledAt         DateTime?
+  processedAt         DateTime?
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @default(now())
+  InvoicePaymentBatch InvoicePaymentBatch[]
+  Transaction         Transaction[]
+  Invoice             Invoice[]             @relation("InvoiceToPaymentBatch")
+  currency            Currency?             @relation(fields: [currencyCode], references: [id])
+
+  @@map("supplier_payment_method")
+  @@schema("payment")
+}
+
+model InvoicePaymentBatch {
+  invoiceId      String
+  paymentBatchId String
+  createdAt      DateTime     @default(now())
+  invoice        Invoice      @relation(fields: [invoiceId], references: [id])
+  paymentBatch   PaymentBatch @relation(fields: [paymentBatchId], references: [id])
+
+  @@id([invoiceId, paymentBatchId])
+  @@map("invoice_payment_batch")
+  @@schema("payment")
+}
+
+model Transaction {
+  id              String            @id
+  paymentBatchId  String
+  invoiceId       String
+  amount          Float
+  status          TransactionStatus
+  createdAt       DateTime          @default(now())
+  invoice         Invoice           @relation(fields: [invoiceId], references: [id])
+  paymentBatch    PaymentBatch      @relation(fields: [paymentBatchId], references: [id])
+  remarks         String?
+  paymentMethodId String?
+  currencyCode    String
+  supplierId      String
+  currency        Currency          @relation(fields: [currencyCode], references: [id])
+  paymentMethod   PaymentMethod?    @relation(fields: [paymentMethodId], references: [id])
+  supplier        Supplier          @relation(fields: [supplierId], references: [id])
+
+  @@map("transaction")
+  @@schema("payment")
+}
+
+model AuditLog {
+  id             Int      @id @default(autoincrement())
+  beforeData     Json?
+  eventData      Json?
+  metadata       Json?
+  impactData     Json?
+  serviceName    String?
+  previousValues Json?
+  newValues      Json?
+  entityType     String?
+  entityId       String?
+  action         String?
+  createdBy      String?
+  createdAt      DateTime @default(now())
+  organizationId String?
+
+  @@schema("audit_log")
+}
+
+model InvoiceStatusHistory {
+  id             String         @id
+  invoiceId      String
+  status         InvoiceStatus
+  previousStatus InvoiceStatus?
+  userId         String?
+  remarks        String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @default(now())
+  invoice        Invoice        @relation(fields: [invoiceId], references: [id])
+
+  @@map("invoice_status_history")
+  @@schema("invoice")
+}
+
+model Notification {
+  id            Int                @id @default(autoincrement())
+  userId        String
+  type          NotificationType
+  entityName    String?
+  invoiceNumber String?
+  feature       String?
+  meta          Json? //if needed
+  status        NotificationStatus @default(UNREAD)
+  createdAt     DateTime           @default(now())
+  actionUrl     String?
+  createdBy     String?
+  user          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@schema("notification")
+}
+
+enum NotificationType {
+  NEW_ENTITY_ASSIGNED
+  NEW_USER_ADDED
+  USER_ACCOUNT_ACTIVATED
+  NEW_INVOICE
+  INVOICE_DUE
+  TEMPLATE_TRAINING
+  NEW_SUPPLIER
+  NEW_CLIENT
+  PASSWORD_RESET
+  UNPROCESSED_FILES
+  ACCESS_UPDATED
+  NEW_CLIENT_INVOICE
+
+  @@schema("notification")
+}
+
+enum NotificationStatus {
+  READ
+  UNREAD
+
+  @@schema("notification")
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  PENDING
+
+  @@schema("user")
+}
+
+enum UserTokenType {
+  RESETPASSWORD
+  LOGIN
+
+  @@schema("user")
+}
+
+enum InvoiceStatus {
+  RECEIVED
+  PENDING
+  IN_PROGRESS
+  UNDER_REVIEW
+  APPROVAL_IN_PROGRESS
+  APPROVED
+  ESCALATED
+  REJECTED
+  PAID
+  ARCHIVED
+  MARKED_INCORRECT
+  INCORRECT
+  INVOICE_TRAINING
+  INVOICE_TRAINING_IN_PROGRESS
+  INVOICE_TRAINING_COMPLETED
+  DUPLICATE_REJECTED
+  UNPROCESSED
+
+  @@schema("invoice")
+}
+
+enum FileTypes {
+  PDF
+  IMAGE
+  XML
+  PNG
+  JPG
+
+  @@schema("invoice")
+}
+
+enum ProcessType {
+  EMAIL_FETCH
+  FILE_STORAGE
+  FILE_PROCESSING
+  SAVE_TO_DB
+
+  @@schema("invoice")
+}
+
+enum ProcessStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  RETRYING
+
+  @@schema("invoice")
+}
+
+enum InvoiceApprovalStatus {
+  PENDING
+  VALIDATED
+  APPROVED
+  REJECTED
+  ESCALATED
+
+  @@schema("invoice")
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSED
+  COMPLETED
+  FAILED
+
+  @@schema("payment")
+}
+
+enum TransactionStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  REFUNDED
+
+  @@schema("payment")
+}
+
+enum InvoiceSource {
+  EMAIL
+  API
+  PEPPOL_NETWORK
+
+  @@schema("invoice")
+}
+
+enum InvoiceKeywordType {
+  Recurring // covers monthly, weekly, yearly, etc.
+  Prepaid
+  Intra_Community
+
+  @@schema("invoice")
+}
+
+enum TemplateType {
+  Regex
+  Coordinate
+
+  @@schema("invoice")
+}
+
+enum ExtractionMethod {
+  TEMPLATE
+  LLM
+
+  @@schema("invoice")
+}
