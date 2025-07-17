@@ -1,4 +1,4 @@
-const { PrismaClient } = require('@prisma/client');
+import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 
 async function clear() {
@@ -9,7 +9,7 @@ async function clear() {
       "user"."organization"
     RESTART IDENTITY CASCADE;
   `);
-  console.log('Tables truncated');
+  console.log("Tables truncated");
   await prisma.$disconnect();
 }
 
